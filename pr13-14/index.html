@@ -9,7 +9,6 @@
   <link rel="apple-touch-icon" href="/icons/favicon-256x256.png">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="icon" href="/icons/favicon.ico" sizes="16x16" type="image/x-icon">
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
   <title>SoftShop — Заметки</title>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -17,19 +16,16 @@
     .header{text-align:center;margin-bottom:1rem}
     .header h1{font-size:1.6rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
     .header p{color:#9ca3af;font-size:.85rem;margin-top:.2rem}
-    /* Tabs */
     .tabs{display:flex;gap:0;margin-bottom:1.5rem;border-radius:8px;overflow:hidden;border:1px solid #2a2d3a;width:100%;max-width:540px}
     .tabs button{flex:1;padding:.6rem;border:none;background:#1a1d27;color:#9ca3af;font-size:.85rem;cursor:pointer;transition:all .2s}
     .tabs button.active{background:#6366f1;color:#fff;font-weight:600}
     .tabs button:hover:not(.active){background:#22252f}
-    /* Status */
     .status{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .7rem;border-radius:999px;font-size:.75rem;font-weight:600;margin-bottom:1rem}
     .status--online{background:#065f4620;color:#34d399;border:1px solid #34d39940}
     .status--offline{background:#7f1d1d20;color:#f87171;border:1px solid #f8717140}
     .status__dot{width:7px;height:7px;border-radius:50%}
     .status--online .status__dot{background:#34d399}
     .status--offline .status__dot{background:#f87171}
-    /* Main content area */
     #app-content{width:100%;max-width:540px}
     .card{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;padding:1.5rem}
     .form{display:flex;gap:.5rem;margin-bottom:1.2rem}
@@ -45,17 +41,12 @@
     .notes li .delete-btn{background:none;border:none;color:#f87171;font-size:1rem;cursor:pointer;padding:.2rem .5rem;border-radius:6px;margin-left:.5rem}
     .notes li .delete-btn:hover{background:#7f1d1d30}
     .empty{text-align:center;color:#555a6e;padding:1.5rem 0;font-size:.88rem}
-    /* Push buttons */
     .push-row{display:flex;gap:.5rem;margin-top:1rem;justify-content:center}
     .push-row button{padding:.5rem 1rem;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer}
-    .btn-push-on{background:#059669;color:#fff}
-    .btn-push-on:hover{background:#047857}
-    .btn-push-off{background:#dc2626;color:#fff}
-    .btn-push-off:hover{background:#b91c1c}
-    /* Toast notification */
+    .btn-on{background:#059669;color:#fff}.btn-on:hover{background:#047857}
+    .btn-off{background:#dc2626;color:#fff}.btn-off:hover{background:#b91c1c}
     .toast{position:fixed;top:12px;right:12px;background:#6366f1;color:#fff;padding:.8rem 1.2rem;border-radius:8px;z-index:1000;font-size:.88rem;box-shadow:0 4px 12px #0008;animation:fadeIn .3s}
     @keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-    /* About page */
     .about h2{font-size:1.2rem;margin-bottom:.8rem}
     .about p{color:#9ca3af;font-size:.9rem;margin-bottom:.5rem}
     .sw-info{margin-top:1rem;font-size:.72rem;color:#555a6e;text-align:center}

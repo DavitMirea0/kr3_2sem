@@ -7,90 +7,78 @@ var cors = require("cors");
 var path = require("path");
 var fs = require("fs");
 
-// --- VAPID keys (generated via: npx web-push generate-vapid-keys) ---
-var vapidKeys = {
-  publicKey: "BIl-FbvKoHKohZE6k_GQAPDqA_3ShM4vmPj0loZCYpmGw_Xh2foq3Z6O1L8J4n8Eopw1f0oJepdp9XCgG5QRnz8",
-  privateKey: "ASoyctW1n6MS7RO21FZrYbbyN5mmGwiKG2pUQ91ga0Q"
-};
+var VAPID_PUBLIC = "BPansTIIyeCJPbZzRFy5Y1cGHXoqcZM5cHBbGRjsUJRIn3d81v-0PJ1tD7yOxFlvKqT4BcoDxD5nsOKPP57rrbw";
+var VAPID_PRIVATE = "MSUEg4PJl_c9RmcXcRILjDyH14xNXFXXBROLRoEr33I";
 
-webpush.setVapidDetails(
-  "mailto:softshop@example.com",
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
+webpush.setVapidDetails("mailto:softshop@example.com", VAPID_PUBLIC, VAPID_PRIVATE);
 
 var app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Serve sw.js with correct MIME type
+// Serve sw.js with correct MIME
 app.get("/sw.js", function (req, res) {
   res.setHeader("Content-Type", "application/javascript");
   res.sendFile(path.join(__dirname, "sw.js"));
 });
 
+// VAPID public key endpoint (client fetches this)
+app.get("/vapid-public-key", function (req, res) {
+  res.json({ publicKey: VAPID_PUBLIC });
+});
+
 app.use(express.static(__dirname));
 
-// Push subscriptions storage
+// Push subscriptions
 var subscriptions = [];
 
-// Subscribe endpoint
 app.post("/subscribe", function (req, res) {
+  console.log("POST /subscribe - new push subscription");
   subscriptions.push(req.body);
   res.status(201).json({ message: "Subscribed" });
 });
 
-// Unsubscribe endpoint
 app.post("/unsubscribe", function (req, res) {
+  console.log("POST /unsubscribe");
   var endpoint = req.body.endpoint;
-  subscriptions = subscriptions.filter(function (sub) {
-    return sub.endpoint !== endpoint;
-  });
+  subscriptions = subscriptions.filter(function (s) { return s.endpoint !== endpoint; });
   res.status(200).json({ message: "Unsubscribed" });
 });
 
-// --- Create server (HTTP or HTTPS) ---
+// Create server (HTTPS if certs exist, else HTTP)
 var server;
 var PORT = 3001;
-
-// Try HTTPS if certs exist
 var certPath = path.join(__dirname, "localhost.pem");
 var keyPath = path.join(__dirname, "localhost-key.pem");
 
 if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
   var https = require("https");
-  var options = {
-    cert: fs.readFileSync(certPath),
-    key: fs.readFileSync(keyPath)
-  };
-  server = https.createServer(options, app);
-  console.log("HTTPS mode enabled");
+  server = https.createServer({ cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }, app);
+  console.log("HTTPS mode");
 } else {
   server = http.createServer(app);
-  console.log("HTTP mode (no certs found, for HTTPS run: mkcert localhost)");
+  console.log("HTTP mode (for HTTPS: mkcert localhost)");
 }
 
-// --- Socket.IO ---
-var io = socketIo(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
-});
+// Socket.IO
+var io = socketIo(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
 io.on("connection", function (socket) {
   console.log("Client connected:", socket.id);
 
   socket.on("newTask", function (task) {
-    // Broadcast to all clients
+    console.log("newTask:", task.text, "| subscribers:", subscriptions.length);
     io.emit("taskAdded", task);
 
-    // Send push to all subscribers
-    var payload = JSON.stringify({
-      title: "Новая задача",
-      body: task.text
-    });
-
+    var payload = JSON.stringify({ title: "SoftShop", body: task.text });
     subscriptions.forEach(function (sub) {
-      webpush.sendNotification(sub, payload).catch(function (err) {
-        console.error("Push error:", err.statusCode || err);
+      webpush.sendNotification(sub, payload).then(function () {
+        console.log("Push sent OK");
+      }).catch(function (err) {
+        console.error("Push error:", err.statusCode || err.message || err);
+        if (err.statusCode === 410) {
+          subscriptions = subscriptions.filter(function (s) { return s.endpoint !== sub.endpoint; });
+        }
       });
     });
   });
@@ -101,6 +89,6 @@ io.on("connection", function (socket) {
 });
 
 server.listen(PORT, function () {
-  var protocol = fs.existsSync(certPath) ? "https" : "http";
-  console.log(protocol + "://localhost:" + PORT);
+  var proto = fs.existsSync(certPath) ? "https" : "http";
+  console.log(proto + "://localhost:" + PORT);
 });
