@@ -1,94 +1,117 @@
-var express = require("express");
-var http = require("http");
-var socketIo = require("socket.io");
-var webpush = require("web-push");
-var bodyParser = require("body-parser");
-var cors = require("cors");
-var path = require("path");
-var fs = require("fs");
+const express = require('express');
+const http = require('http');
+const https = require('https');
+const socketIo = require('socket.io');
+const webpush = require('web-push');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
-var VAPID_PUBLIC = "BPansTIIyeCJPbZzRFy5Y1cGHXoqcZM5cHBbGRjsUJRIn3d81v-0PJ1tD7yOxFlvKqT4BcoDxD5nsOKPP57rrbw";
-var VAPID_PRIVATE = "MSUEg4PJl_c9RmcXcRILjDyH14xNXFXXBROLRoEr33I";
+const vapidKeys = {
+  publicKey: 'BBkkMy7g6QFPpRUWicwBiV3bvAflL0oojIzdP3T1MBS3FkZ8kXD3w0MayZzQnermPKbX8HbcYtkZ2NGG9bfrz8M',
+  privateKey: '5g6rAacdz5U8vZ3fwqgtTGEYWoT7GvaiaNKOz6L6LGw'
+};
 
-webpush.setVapidDetails("mailto:softshop@example.com", VAPID_PUBLIC, VAPID_PRIVATE);
+webpush.setVapidDetails('mailto:softshop@example.com', vapidKeys.publicKey, vapidKeys.privateKey);
 
-var app = express();
+const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Serve sw.js with correct MIME
-app.get("/sw.js", function (req, res) {
-  res.setHeader("Content-Type", "application/javascript");
-  res.sendFile(path.join(__dirname, "sw.js"));
+app.get('/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
 });
 
-// VAPID public key endpoint (client fetches this)
-app.get("/vapid-public-key", function (req, res) {
-  res.json({ publicKey: VAPID_PUBLIC });
+app.get('/sw.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'sw.js'));
 });
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, './')));
 
-// Push subscriptions
-var subscriptions = [];
+let subscriptions = [];
+const reminders = new Map();
 
-app.post("/subscribe", function (req, res) {
-  console.log("POST /subscribe - new push subscription");
+app.post('/subscribe', (req, res) => {
+  console.log('POST /subscribe');
   subscriptions.push(req.body);
-  res.status(201).json({ message: "Subscribed" });
+  res.status(201).json({ message: 'Subscribed' });
 });
 
-app.post("/unsubscribe", function (req, res) {
-  console.log("POST /unsubscribe");
-  var endpoint = req.body.endpoint;
-  subscriptions = subscriptions.filter(function (s) { return s.endpoint !== endpoint; });
-  res.status(200).json({ message: "Unsubscribed" });
+app.post('/unsubscribe', (req, res) => {
+  console.log('POST /unsubscribe');
+  subscriptions = subscriptions.filter(s => s.endpoint !== req.body.endpoint);
+  res.status(200).json({ message: 'Unsubscribed' });
 });
 
-// Create server (HTTPS if certs exist, else HTTP)
-var server;
-var PORT = 3001;
-var certPath = path.join(__dirname, "localhost.pem");
-var keyPath = path.join(__dirname, "localhost-key.pem");
+app.post('/snooze', (req, res) => {
+  const reminderId = parseInt(req.query.reminderId, 10);
+  if (!reminderId || !reminders.has(reminderId)) {
+    return res.status(404).json({ error: 'Reminder not found' });
+  }
+  const reminder = reminders.get(reminderId);
+  clearTimeout(reminder.timeoutId);
+  const delay = 5 * 60 * 1000;
+  const tid = setTimeout(() => {
+    const payload = JSON.stringify({ title: 'Напоминание (отложено)', body: reminder.text, reminderId });
+    subscriptions.forEach(sub => {
+      webpush.sendNotification(sub, payload).then(() => console.log('Snoozed push OK')).catch(e => console.error('Push err:', e.statusCode || e.message));
+    });
+    reminders.delete(reminderId);
+  }, delay);
+  reminders.set(reminderId, { timeoutId: tid, text: reminder.text, reminderTime: Date.now() + delay });
+  console.log('Snoozed reminder', reminderId, 'for 5 min');
+  res.status(200).json({ message: 'Snoozed' });
+});
+
+let server;
+const PORT = 3001;
+const certPath = path.join(__dirname, 'localhost.pem');
+const keyPath = path.join(__dirname, 'localhost-key.pem');
 
 if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-  var https = require("https");
   server = https.createServer({ cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }, app);
-  console.log("HTTPS mode");
+  console.log('HTTPS mode');
 } else {
   server = http.createServer(app);
-  console.log("HTTP mode (for HTTPS: mkcert localhost)");
+  console.log('HTTP mode');
 }
 
-// Socket.IO
-var io = socketIo(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+const io = socketIo(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-io.on("connection", function (socket) {
-  console.log("Client connected:", socket.id);
+io.on('connection', (socket) => {
+  console.log('Client:', socket.id);
 
-  socket.on("newTask", function (task) {
-    console.log("newTask:", task.text, "| subscribers:", subscriptions.length);
-    io.emit("taskAdded", task);
-
-    var payload = JSON.stringify({ title: "SoftShop", body: task.text });
-    subscriptions.forEach(function (sub) {
-      webpush.sendNotification(sub, payload).then(function () {
-        console.log("Push sent OK");
-      }).catch(function (err) {
-        console.error("Push error:", err.statusCode || err.message || err);
-        if (err.statusCode === 410) {
-          subscriptions = subscriptions.filter(function (s) { return s.endpoint !== sub.endpoint; });
-        }
+  socket.on('newTask', (task) => {
+    console.log('newTask:', task.text, '| subs:', subscriptions.length);
+    io.emit('taskAdded', task);
+    const payload = JSON.stringify({ title: 'Новая задача', body: task.text });
+    subscriptions.forEach(sub => {
+      webpush.sendNotification(sub, payload).then(() => console.log('Push OK')).catch(e => {
+        console.error('Push err:', e.statusCode || e.message);
+        if (e.statusCode === 410) subscriptions = subscriptions.filter(s => s.endpoint !== sub.endpoint);
       });
     });
   });
 
-  socket.on("disconnect", function () {
-    console.log("Client disconnected:", socket.id);
+  socket.on('newReminder', (r) => {
+    const delay = r.reminderTime - Date.now();
+    console.log('newReminder:', r.text, 'in', Math.round(delay/1000), 's | subs:', subscriptions.length);
+    if (delay <= 0) return;
+    const tid = setTimeout(() => {
+      const payload = JSON.stringify({ title: 'Напоминание', body: r.text, reminderId: r.id });
+      subscriptions.forEach(sub => {
+        webpush.sendNotification(sub, payload).then(() => console.log('Reminder push OK')).catch(e => console.error('Push err:', e.statusCode || e.message));
+      });
+      reminders.delete(r.id);
+    }, delay);
+    reminders.set(r.id, { timeoutId: tid, text: r.text, reminderTime: r.reminderTime });
   });
+
+  socket.on('disconnect', () => console.log('Disconnected:', socket.id));
 });
 
-server.listen(PORT, function () {
-  var proto = fs.existsSync(certPath) ? "https" : "http";
-  console.log(proto + "://localhost:" + PORT);
+server.listen(PORT, () => {
+  console.log((fs.existsSync(certPath) ? 'https' : 'http') + '://localhost:' + PORT);
 });

@@ -1,247 +1,223 @@
-// =====================================================================
-// App Shell navigation
-// =====================================================================
-var contentDiv = document.getElementById("app-content");
-var homeBtn = document.getElementById("home-btn");
-var aboutBtn = document.getElementById("about-btn");
-var statusEl = document.getElementById("status");
-var statusTxt = document.getElementById("status-text");
-var swInfoEl = document.getElementById("sw-info");
+const contentDiv = document.getElementById('app-content');
+const homeBtn = document.getElementById('home-btn');
+const aboutBtn = document.getElementById('about-btn');
+const connectionStatus = document.getElementById('connection-status');
+const enablePushBtn = document.getElementById('enable-push');
+const disablePushBtn = document.getElementById('disable-push');
+const swInfoEl = document.getElementById('sw-info');
 
-var VAPID_PUBLIC = "BPansTIIyeCJPbZzRFy5Y1cGHXoqcZM5cHBbGRjsUJRIn3d81v-0PJ1tD7yOxFlvKqT4BcoDxD5nsOKPP57rrbw";
+const socket = io();
+let publicKey = '';
 
-// Socket.IO - auto-detect protocol and host
-var socket = io();
-
-function setActive(id) {
-  homeBtn.classList.remove("active");
-  aboutBtn.classList.remove("active");
-  document.getElementById(id).classList.add("active");
+// ===== Navigation =====
+function setActiveButton(id) {
+    [homeBtn, aboutBtn].forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
 }
 
-function loadContent(page) {
-  fetch("/content/" + page + ".html")
-    .then(function (r) { return r.text(); })
-    .then(function (html) {
-      contentDiv.innerHTML = html;
-      if (page === "home") {
-        initNotes();
-        initPushButtons();
-      }
-    })
-    .catch(function () {
-      contentDiv.innerHTML = "<p style='text-align:center;color:#f87171'>Ошибка загрузки</p>";
-    });
-}
-
-homeBtn.addEventListener("click", function () { setActive("home-btn"); loadContent("home"); });
-aboutBtn.addEventListener("click", function () { setActive("about-btn"); loadContent("about"); });
-loadContent("home");
-
-// =====================================================================
-// Online / Offline
-// =====================================================================
-function updateStatus() {
-  if (navigator.onLine) {
-    statusEl.className = "status status--online";
-    statusTxt.textContent = "Онлайн";
-  } else {
-    statusEl.className = "status status--offline";
-    statusTxt.textContent = "Офлайн";
-  }
-}
-window.addEventListener("online", updateStatus);
-window.addEventListener("offline", updateStatus);
-updateStatus();
-
-// =====================================================================
-// Notes (localStorage)
-// =====================================================================
-function initNotes() {
-  var form = document.getElementById("note-form");
-  var input = document.getElementById("note-input");
-  var list = document.getElementById("notes-list");
-  var emptyEl = document.getElementById("empty-state");
-  if (!form) return;
-
-  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
-
-  function render() {
-    var notes = JSON.parse(localStorage.getItem("softshop-notes") || "[]");
-    if (notes.length === 0) { list.innerHTML = ""; emptyEl.style.display = "block"; return; }
-    emptyEl.style.display = "none";
-    var h = "";
-    for (var i = 0; i < notes.length; i++) {
-      h += "<li><span class='text'>" + esc(notes[i]) + "</span><button class='delete-btn' data-index='" + i + "'>X</button></li>";
+async function loadContent(page) {
+    try {
+        const r = await fetch('/content/' + page + '.html');
+        contentDiv.innerHTML = await r.text();
+        if (page === 'home') initNotes();
+    } catch (e) {
+        contentDiv.innerHTML = '<p style="text-align:center;color:#f87171">Ошибка загрузки</p>';
     }
-    list.innerHTML = h;
-  }
-
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var text = input.value.trim();
-    if (!text) return;
-    var notes = JSON.parse(localStorage.getItem("softshop-notes") || "[]");
-    notes.push(text);
-    localStorage.setItem("softshop-notes", JSON.stringify(notes));
-    render();
-    input.value = "";
-    input.focus();
-    // WebSocket: send new task
-    socket.emit("newTask", { text: text, timestamp: Date.now() });
-  });
-
-  list.addEventListener("click", function (e) {
-    var btn = e.target.closest(".delete-btn");
-    if (!btn) return;
-    var notes = JSON.parse(localStorage.getItem("softshop-notes") || "[]");
-    notes.splice(parseInt(btn.dataset.index, 10), 1);
-    localStorage.setItem("softshop-notes", JSON.stringify(notes));
-    render();
-  });
-
-  render();
 }
 
-// =====================================================================
-// WebSocket: receive from other clients
-// =====================================================================
-socket.on("taskAdded", function (task) {
-  var t = document.createElement("div");
-  t.className = "toast";
-  t.textContent = "Новая задача: " + task.text;
-  document.body.appendChild(t);
-  setTimeout(function () { t.remove(); }, 3000);
+homeBtn.addEventListener('click', () => { setActiveButton('home-btn'); loadContent('home'); });
+aboutBtn.addEventListener('click', () => { setActiveButton('about-btn'); loadContent('about'); });
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadContent('home');
+    registerSW();
+    updateStatus();
+    getVapidKey();
 });
 
-// =====================================================================
-// Push notifications
-// =====================================================================
-function urlB64ToUint8(base64String) {
-  var padding = "=".repeat((4 - base64String.length % 4) % 4);
-  var base64 = (base64String + padding);
-  // Replace URL-safe chars
-  var result = "";
-  for (var i = 0; i < base64.length; i++) {
-    var c = base64[i];
-    if (c === "-") result += "+";
-    else if (c === "_") result += "/";
-    else result += c;
-  }
-  var rawData = window.atob(result);
-  var arr = new Uint8Array(rawData.length);
-  for (var j = 0; j < rawData.length; j++) {
-    arr[j] = rawData.charCodeAt(j);
-  }
-  return arr;
+// ===== Online/Offline =====
+function updateStatus() {
+    if (!connectionStatus) return;
+    if (navigator.onLine) {
+        connectionStatus.className = 'status status--online';
+        connectionStatus.innerHTML = '<span class="status__dot"></span><span>Онлайн</span>';
+    } else {
+        connectionStatus.className = 'status status--offline';
+        connectionStatus.innerHTML = '<span class="status__dot"></span><span>Офлайн</span>';
+    }
+}
+window.addEventListener('online', updateStatus);
+window.addEventListener('offline', updateStatus);
+
+// ===== VAPID =====
+async function getVapidKey() {
+    try {
+        const r = await fetch('/vapid-public-key');
+        const d = await r.json();
+        publicKey = d.publicKey;
+        console.log('VAPID key received');
+    } catch (e) { console.error('VAPID error:', e); }
 }
 
-function doSubscribe() {
-  console.log("[Push] subscribing...");
-  return navigator.serviceWorker.ready
-    .then(function (reg) {
-      console.log("[Push] SW ready, calling pushManager.subscribe");
-      return reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlB64ToUint8(VAPID_PUBLIC)
-      });
-    })
-    .then(function (subscription) {
-      console.log("[Push] Got subscription:", subscription.endpoint.substring(0, 60) + "...");
-      return fetch("/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subscription)
-      });
-    })
-    .then(function (resp) {
-      console.log("[Push] Server responded:", resp.status);
-    })
-    .catch(function (err) {
-      console.error("[Push] Subscribe error:", err);
-    });
+// ===== Service Worker =====
+async function registerSW() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        console.log('SW registered:', reg.scope);
+        if (swInfoEl) swInfoEl.innerHTML = 'Service Worker: <span style="color:#34d399">активен</span>';
+        setupPush(reg);
+    } catch (e) {
+        console.error('SW error:', e);
+        if (swInfoEl) swInfoEl.innerHTML = 'Service Worker: <span style="color:#f87171">ошибка</span>';
+    }
 }
 
-function doUnsubscribe() {
-  return navigator.serviceWorker.ready
-    .then(function (reg) { return reg.pushManager.getSubscription(); })
-    .then(function (sub) {
-      if (!sub) return;
-      return fetch("/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: sub.endpoint })
-      }).then(function () { return sub.unsubscribe(); });
-    })
-    .then(function () { console.log("[Push] Unsubscribed"); })
-    .catch(function (err) { console.error("[Push] Unsubscribe error:", err); });
+// ===== Push =====
+function urlB64(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = window.atob(base64);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
+    return arr;
 }
 
-function initPushButtons() {
-  var onBtn = document.getElementById("enable-push");
-  var offBtn = document.getElementById("disable-push");
-  if (!onBtn || !offBtn) return;
-
-  // Check if already subscribed
-  if ("serviceWorker" in navigator && "PushManager" in window) {
-    navigator.serviceWorker.ready.then(function (reg) {
-      return reg.pushManager.getSubscription();
-    }).then(function (sub) {
-      if (sub) {
-        console.log("[Push] Already subscribed");
-        onBtn.style.display = "none";
-        offBtn.style.display = "inline-block";
-      }
-    });
-  }
-
-  onBtn.addEventListener("click", function () {
-    console.log("[Push] Enable button clicked");
-
-    // Step 1: request notification permission
-    if (typeof Notification === "undefined") {
-      console.error("[Push] Notification API not available");
-      return;
+async function setupPush(reg) {
+    if (!enablePushBtn || !disablePushBtn) return;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+        enablePushBtn.style.display = 'none';
+        disablePushBtn.style.display = 'inline-block';
     }
 
-    if (Notification.permission === "denied") {
-      alert("Уведомления запрещены в настройках браузера.");
-      return;
+    enablePushBtn.addEventListener('click', async () => {
+        if (Notification.permission === 'denied') { alert('Уведомления запрещены в настройках.'); return; }
+        if (Notification.permission === 'default') {
+            const p = await Notification.requestPermission();
+            if (p !== 'granted') { alert('Нужно разрешить уведомления.'); return; }
+        }
+        try {
+            const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(publicKey) });
+            await fetch('/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(subscription) });
+            console.log('[Push] Subscribed OK');
+            toast('Уведомления включены!', 'success');
+            enablePushBtn.style.display = 'none';
+            disablePushBtn.style.display = 'inline-block';
+        } catch (e) { console.error('[Push] Error:', e); toast('Ошибка подписки', 'error'); }
+    });
+
+    disablePushBtn.addEventListener('click', async () => {
+        const s = await reg.pushManager.getSubscription();
+        if (s) {
+            await s.unsubscribe();
+            await fetch('/unsubscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: s.endpoint }) });
+            console.log('[Push] Unsubscribed');
+            toast('Уведомления отключены', 'success');
+            disablePushBtn.style.display = 'none';
+            enablePushBtn.style.display = 'inline-block';
+        }
+    });
+}
+
+// ===== Fallback: SW sends push data via postMessage =====
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'PUSH_RECEIVED') {
+            console.log('[Push fallback]', event.data);
+            if (Notification.permission === 'granted') {
+                new Notification(event.data.title, { body: event.data.body, icon: '/icons/favicon-128x128.png' });
+            }
+            toast(event.data.body || event.data.title, 'info');
+        }
+    });
+}
+
+// ===== Toast =====
+function toast(msg, type) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    if (type === 'success') el.style.background = '#059669';
+    if (type === 'error') el.style.background = '#dc2626';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+}
+
+// ===== Notes =====
+function initNotes() {
+    const form = document.getElementById('note-form');
+    const input = document.getElementById('note-input');
+    const rForm = document.getElementById('reminder-form');
+    const rText = document.getElementById('reminder-text');
+    const rTime = document.getElementById('reminder-time');
+    const list = document.getElementById('notes-list');
+    const emptyEl = document.getElementById('empty-state');
+    if (!form) return;
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    function render() {
+        const notes = JSON.parse(localStorage.getItem('softshop-notes') || '[]');
+        if (!notes.length) { list.innerHTML = ''; if (emptyEl) emptyEl.style.display = 'block'; return; }
+        if (emptyEl) emptyEl.style.display = 'none';
+        list.innerHTML = notes.map((n, i) => {
+            const text = typeof n === 'object' ? n.text : n;
+            let info = '';
+            if (n.reminder) info = '<br><small style="color:#a78bfa;">Напоминание: ' + new Date(n.reminder).toLocaleString('ru-RU') + '</small>';
+            return '<li><span class="text">' + esc(text) + info + '</span><button class="delete-btn" data-index="' + i + '">X</button></li>';
+        }).join('');
     }
 
-    Notification.requestPermission().then(function (perm) {
-      console.log("[Push] Permission result:", perm);
-      if (perm !== "granted") {
-        alert("Необходимо разрешить уведомления.");
-        return;
-      }
-      // Step 2: subscribe
-      doSubscribe().then(function () {
-        onBtn.style.display = "none";
-        offBtn.style.display = "inline-block";
-      });
-    });
-  });
+    function addNote(text, reminder) {
+        const notes = JSON.parse(localStorage.getItem('softshop-notes') || '[]');
+        const note = { id: Date.now(), text, reminder: reminder || null };
+        notes.push(note);
+        localStorage.setItem('softshop-notes', JSON.stringify(notes));
+        render();
+        if (reminder) {
+            socket.emit('newReminder', { id: note.id, text, reminderTime: reminder });
+        } else {
+            socket.emit('newTask', { text, timestamp: Date.now() });
+        }
+    }
 
-  offBtn.addEventListener("click", function () {
-    doUnsubscribe().then(function () {
-      offBtn.style.display = "none";
-      onBtn.style.display = "inline-block";
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const t = input.value.trim();
+        if (t) { addNote(t, null); input.value = ''; input.focus(); }
     });
-  });
+
+    if (rForm) {
+        rForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const t = rText.value.trim();
+            const dt = rTime.value;
+            if (t && dt) {
+                const ts = new Date(dt).getTime();
+                if (ts > Date.now()) {
+                    addNote(t, ts);
+                    rText.value = ''; rTime.value = '';
+                    toast('Напоминание установлено!', 'success');
+                } else { alert('Дата должна быть в будущем'); }
+            }
+        });
+    }
+
+    list.addEventListener('click', (e) => {
+        const btn = e.target.closest('.delete-btn');
+        if (!btn) return;
+        const notes = JSON.parse(localStorage.getItem('softshop-notes') || '[]');
+        notes.splice(parseInt(btn.dataset.index, 10), 1);
+        localStorage.setItem('softshop-notes', JSON.stringify(notes));
+        render();
+    });
+
+    render();
 }
 
-// =====================================================================
-// Service Worker registration
-// =====================================================================
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js")
-    .then(function (reg) {
-      console.log("SW registered, scope:", reg.scope);
-      swInfoEl.innerHTML = "Service Worker: <span style='color:#34d399'>активен</span>";
-    })
-    .catch(function (err) {
-      console.error("SW error:", err);
-      swInfoEl.innerHTML = "Service Worker: <span style='color:#f87171'>ошибка</span>";
-    });
-}
+// ===== WebSocket =====
+socket.on('taskAdded', (task) => {
+    console.log('Task from other client:', task);
+    toast('Новая задача: ' + (task.text || task), 'info');
+});
