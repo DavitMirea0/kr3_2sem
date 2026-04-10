@@ -17,20 +17,26 @@
     <h1>SoftShop — Заметки</h1>
     <p>Офлайн-приложение с Service Worker</p>
   </div>
+
   <div id="connection-status" class="status status--online">
     <span class="status__dot"></span>
     <span>Онлайн</span>
   </div>
+
   <div class="tabs">
     <button id="home-btn" class="tab active">Главная</button>
     <button id="about-btn" class="tab">О приложении</button>
   </div>
+
   <main id="app-content"></main>
+
   <div class="push-row">
     <button id="enable-push" class="btn-on">Включить уведомления</button>
     <button id="disable-push" class="btn-off" style="display:none;">Отключить уведомления</button>
   </div>
+
   <div class="sw-info" id="sw-info"></div>
+
   <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script src="app.js"></script>
 </body>
